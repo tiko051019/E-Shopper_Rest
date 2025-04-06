@@ -1,0 +1,21 @@
+from django.contrib import admin
+from .models import *
+
+admin.site.register(CustomUSer)
+admin.site.register(Carousel)
+admin.site.register(MainInfo)
+admin.site.register(Category)
+admin.site.register(SubCategory)
+admin.site.register(ItemsName)
+admin.site.register(Items)
+admin.site.register(Products)
+admin.site.register(ItemsDetails)
+admin.site.register(ItemsImages)
+admin.site.register(Gallery)
+admin.site.register(ReviewMessage)
+admin.site.register(ContactMessage)
+admin.site.register(UserSave)
+admin.site.register(Total_Taxes)
+admin.site.register(UserInfo)
+admin.site.register(Payments_History)
+admin.site.register(model404)
