@@ -5,9 +5,11 @@ urlpatterns = [
     path('register/',RegisterAPIView.as_view()),
     path('login/',LoginAPIView.as_view()),
     path('logout/',LogoutAPIView.as_view()),
+
     path('forgot_code/',ForgotPasswordAPIView.as_view()),
-    path('vercode/<int:id>/',VerifyCodeAPIView.as_view()),
-    path('reset_password/<int:id>/',ResetPasswordAPIView.as_view()),
+    path('vercode/<uidb64>/<token>/',VerifyCodeAPIView.as_view()),
+    path('reset_password/<uidb64>/<token>/',ResetPasswordAPIView.as_view()),
+    
     path('carousel/',CarouselFunction),
     path('maininfo/',MainInfoFunction),
     path('category/',CategoryFunction),
@@ -21,10 +23,12 @@ urlpatterns = [
     path('gallery/',GalleryFunction),
     path('contact_message/',ContactMessageFunction),
     path('review_message/<int:id>/',ReviewMessageFunction),
-    path('usersave_items/<int:user_id>/<int:item_id>/',UserSaveFunction),
+
+    path('usersave_items/<uidb64>/<token>/<int:item_id>/',UserSaveFunction),
     path('save_items_id_function/<int:user_id>/',SaveItems_Id_Function),
     path('add_quantity/<int:user_id>/<int:item_id>/',Item_Quantity_Add),
     path('remove_quantity/<int:user_id>/<int:item_id>/',Item_Quantity_Remove),
+
     path('taxes/',TotalTaxesFunction),
     path('total_price/<int:user_id>/',TotalPriceFunction),
     path('userinfo/<int:user_id>/',UserInfoFunction),

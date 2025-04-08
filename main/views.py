@@ -1,3 +1,6 @@
+from django.utils.http import urlsafe_base64_encode,urlsafe_base64_decode
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.encoding import force_bytes
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -52,39 +55,56 @@ class LogoutAPIView(APIView):
 
 class ForgotPasswordAPIView(APIView):
     def post(self,request):
+        username = request.data.get('username')
         serializer = ForgotPasswordSerializer(data = request.data)
-
-        if serializer.is_valid():
-            email = serializer.validated_data['email']
-            key = User.objects.get(email = email)
-
+        userr = get_object_or_404(User,username = username)
+        uid = urlsafe_base64_encode(force_bytes(userr.pk))
+        token = default_token_generator.make_token(userr)
+        emaill = userr.email
+        if emaill:
             code = random.randint(1000,9999)
-            CustomUSer.objects.create(key = key,ver_code = code)
+            CustomUSer.objects.create(key = userr,ver_code = code)
             
-            send_email('Message from E-Shopper administration',f'Your verification code is{code}',[email])
-
-            return Response(data = {'message':'Verification code sent to your email'},status=status.HTTP_201_CREATED)
+            send_email('Message from E-Shopper administration',f'Your verification code is{code}',[emaill])
+            response_data = {
+                'message':'Verification code sent to your email',
+                'uid':uid,
+                'token':token,
+            }
+            return Response(response_data,status=status.HTTP_201_CREATED)
         return Response(data = {'message':serializer.errors},status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyCodeAPIView(APIView):
-    def post(self,request,id):
-        userr = get_object_or_404(CustomUSer,pk = id)
-        code_db = userr.ver_code
-        code_user = request.data.get('code_user')
+    def post(self,request,uidb64,token):
+        uid = urlsafe_base64_decode(uidb64).decode()
+        userr = get_object_or_404(User,pk = uid)
+        userrr = CustomUSer.objects.filter(key = userr).first()
+        token = default_token_generator.make_token(userr)
+        uid = urlsafe_base64_encode(force_bytes(userr.pk))
+        code_db = userrr.ver_code    
+        code_user = request.data.get('ver_code')
         if int(code_db) == int(code_user):
-            userr.delete()
-            return Response(data={'message':'This code is valid'},status=status.HTTP_200_OK)
+            userrr.delete()
+            response_data = {
+                'message':'Verification code is valid',
+                'uid':uid,
+                'token':token,
+            }
+            return Response(response_data,status=status.HTTP_200_OK)
         return Response(data={'message':'This code is invalid'},status=status.HTTP_404_NOT_FOUND)
 
 class ResetPasswordAPIView(APIView):
-    def post(self,request,id):
-        userr = get_object_or_404(User,pk = id) 
+    def post(self,request,uidb64,token):
+        uid = urlsafe_base64_decode(uidb64).decode()
+        userr = get_object_or_404(User,pk = uid) 
+        token = default_token_generator.make_token(userr)
         new_password = request.data.get('password1')
         new_password_2 = request.data.get('password2')
-        if new_password == new_password_2:
-            userr.set_password(new_password)
-            userr.save()
-            return Response(data = {'message':'Password was updated'},status=status.HTTP_200_OK)
+        if default_token_generator.check_token(userr, token):
+            if new_password == new_password_2:
+                userr.set_password(new_password)
+                userr.save()
+                return Response(data = {'message':'Password was updated'},status=status.HTTP_200_OK)
         return Response(data = {'message':'Passwords are not the same'},status=status.HTTP_400_BAD_REQUEST)
 
 #------------------------------------------------------------------------------------------------------
@@ -227,7 +247,7 @@ def ContactMessageFunction(request):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    
+
 @api_view(['POST','GET'])
 def ReviewMessageFunction(request,id):
     queryset_item = Items.objects.filter(pk = id).first()
@@ -265,8 +285,9 @@ def ReviewMessageFunction(request,id):
     return Response(response_data,status=status.HTTP_200_OK)
 
 @api_view(['POST'])
-def UserSaveFunction(request,user_id,item_id):
-    userr = get_object_or_404(User, pk=user_id)
+def UserSaveFunction(request,uidb64,token,item_id):
+    uid = urlsafe_base64_decode(uidb64).decode()
+    userr = get_object_or_404(User, pk=uid)
     itemm = get_object_or_404(Items, pk=item_id)
     found = UserSave.objects.filter(user_key = userr, item_key = itemm)
     if found:
