@@ -4,7 +4,7 @@ from .views import *
 urlpatterns = [
     path('register/',RegisterAPIView.as_view()),
     path('login/',LoginAPIView.as_view()),
-    path('logout/',LogoutAPIView.as_view()),
+    path('logout/',LogoutAllDevicesAPIView.as_view()),
 
     path('forgot_code/',ForgotPasswordAPIView.as_view()),
     path('vercode/<uidb64>/<token>/',VerifyCodeAPIView.as_view()),

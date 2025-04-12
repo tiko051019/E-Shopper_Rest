@@ -14,6 +14,14 @@ from .serializers import *
 import random
 from .utils import send_email
 from rest_framework.decorators import api_view
+from datetime import datetime, timedelta
+import jwt
+from django.conf import settings
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.permissions import IsAuthenticated, AllowAny
+
+now = datetime.now()
 
 #-----------------------------------------Login,Logout,Register----------------------------------------
 
@@ -36,31 +44,49 @@ class LoginAPIView(APIView):
         password = request.data.get('password')
         user = authenticate(username = username,password = password)
         if user:
-            token,_=Token.objects.get_or_create(user = user)
-            return Response(data={'Token':token.key},status=status.HTTP_302_FOUND)
+            payload = {
+                'user_id':user.id,
+                'username':user.username,
+                'type':'login'
+            }
+            token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
+
+            response_data = {
+                'token':token,
+                'message':'Login succesful.'
+            }
+            return Response(response_data,status=status.HTTP_302_FOUND)
         else:
             return Response(data={'Error':'Is not found'},status=status.HTTP_304_NOT_MODIFIED)
 
-class LogoutAPIView(APIView):
+class LogoutAllDevicesAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        token = getattr(request.user, 'auth_token', None)
-        if token:
-            token.delete()
-            return Response({'message': 'Successfully logged out'}, status=status.HTTP_200_OK)
-        return Response({'error': 'Token not found'}, status=status.HTTP_400_BAD_REQUEST)
+        user = request.user
+        tokens = OutstandingToken.objects.filter(user=user)
 
+        for token in tokens:
+            BlacklistedToken.objects.get_or_create(token=token)
+
+        return Response({'message': 'Logged out from all devices'}, status=status.HTTP_200_OK)
 #-------------------------------------------Forgot Password--------------------------------------------
 
 class ForgotPasswordAPIView(APIView):
     def post(self,request):
         username = request.data.get('username')
-        serializer = ForgotPasswordSerializer(data = request.data)
         userr = get_object_or_404(User,username = username)
         uid = urlsafe_base64_encode(force_bytes(userr.pk))
-        token = default_token_generator.make_token(userr)
         emaill = userr.email
+        
+        payload = {
+            'user_id':userr.id,
+            'username':userr.username,
+            'exp': now + timedelta(minutes=10),
+            'type':'forgot_password'
+        }
+        token = jwt.encode(payload, settings.SECRET_KEY,algorithm='HS256')
+
         if emaill:
             code = random.randint(1000,9999)
             CustomUSer.objects.create(key = userr,ver_code = code)
@@ -72,41 +98,55 @@ class ForgotPasswordAPIView(APIView):
                 'token':token,
             }
             return Response(response_data,status=status.HTTP_201_CREATED)
-        return Response(data = {'message':serializer.errors},status=status.HTTP_400_BAD_REQUEST)
+        return Response(data = {'message':'User with this username is not found'},status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyCodeAPIView(APIView):
     def post(self,request,uidb64,token):
         uid = urlsafe_base64_decode(uidb64).decode()
         userr = get_object_or_404(User,pk = uid)
         userrr = CustomUSer.objects.filter(key = userr).first()
-        token = default_token_generator.make_token(userr)
-        uid = urlsafe_base64_encode(force_bytes(userr.pk))
-        code_db = userrr.ver_code    
-        code_user = request.data.get('ver_code')
-        if int(code_db) == int(code_user):
-            userrr.delete()
-            response_data = {
-                'message':'Verification code is valid',
-                'uid':uid,
-                'token':token,
-            }
-            return Response(response_data,status=status.HTTP_200_OK)
+        
+        decoded_token = jwt.decode(token, settings.SECRET_KEY,algorithms=['HS256'],options={'verify_exp':False})
+
+        if decoded_token and decoded_token.get('type') == 'forgot_password':
+
+            code_db = userrr.ver_code    
+            code_user = request.data.get('ver_code')
+            
+            if int(code_db) == int(code_user):
+                userrr.delete()
+                uid = urlsafe_base64_encode(force_bytes(userr.pk))
+                payload = {
+                'user_id':userr.id,
+                'username':userr.username,
+                'exp': now + timedelta(minutes=10),
+                'type':'reset_password'
+                     }
+                token = jwt.encode(payload, settings.SECRET_KEY,algorithm='HS256')
+                response_data = {
+                    'message':'Verification code is valid',
+                    'uid':uid,
+                    'token':token,
+                }
+                return Response(response_data,status=status.HTTP_200_OK)
         return Response(data={'message':'This code is invalid'},status=status.HTTP_404_NOT_FOUND)
 
 class ResetPasswordAPIView(APIView):
     def post(self,request,uidb64,token):
         uid = urlsafe_base64_decode(uidb64).decode()
         userr = get_object_or_404(User,pk = uid) 
-        token = default_token_generator.make_token(userr)
+        decoded_token = jwt.decode(token, settings.SECRET_KEY, algorithms=['HS256'], options={'verify_exp':False})
+
+        if decoded_token.get('type') != 'reset_password':
+            return Response({'error':'Invalid token type.'},status=status.HTTP_400_BAD_REQUEST)
+
         new_password = request.data.get('password1')
         new_password_2 = request.data.get('password2')
-        if default_token_generator.check_token(userr, token):
-            if new_password == new_password_2:
-                userr.set_password(new_password)
-                userr.save()
-                return Response(data = {'message':'Password was updated'},status=status.HTTP_200_OK)
+        if new_password == new_password_2:
+            userr.set_password(new_password)
+            userr.save()
+            return Response(data = {'message':'Password was updated'},status=status.HTTP_200_OK)
         return Response(data = {'message':'Passwords are not the same'},status=status.HTTP_400_BAD_REQUEST)
-
 #------------------------------------------------------------------------------------------------------
 
 @api_view(['GET'])
@@ -181,7 +221,6 @@ def ItemsFilterByCategORSubcat(request,categ,subcat = ' /'):
         queryset = Items.objects.filter(key1 = category,key2 = subcategory)
     else:
         queryset = Items.objects.filter(key1 = category)
-        print(queryset)
     serializer_class = ItemsSerializer(queryset,many = True)
     response_data = {
         'items_filtered_by_categ_or_subcat':serializer_class.data
@@ -211,7 +250,6 @@ def ItemsDetailsFunction(request,id):
         'item_images':serializer_class_images.data,
     }
     return Response(response_data,status=status.HTTP_200_OK)
-
 
 @api_view(['GET'])
 def GalleryFunction(request):
@@ -245,8 +283,7 @@ def ContactMessageFunction(request):
 
             return Response({'message':'Message have sent succesfully'},status=status.HTTP_200_OK)
         
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)  
 
 @api_view(['POST','GET'])
 def ReviewMessageFunction(request,id):
@@ -338,7 +375,6 @@ def TotalTaxesFunction(request):
     serializer_class = TotalTaxesSerializer(queryset).data
     return Response(data = {'taxes':serializer_class},status=status.HTTP_200_OK)
 
-
 @api_view(['POST','GET'])
 def UserInfoFunction(request,user_id):
     userr = get_object_or_404(User, pk=user_id)
@@ -359,7 +395,7 @@ def UserInfoFunction(request,user_id):
             new_adress = serializer.validated_data['adress']
 
         
-            info = userr.userinfo_rn.first()
+            info,created = UserInfo.objects.create(key = userr)
             if new_name:
                 info.name = new_name  
             if new_surname:
@@ -373,7 +409,6 @@ def UserInfoFunction(request,user_id):
             return Response({'message':'User info has been changed'},status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
     return Response(response_data,status=status.HTTP_200_OK)
 
 @api_view(['GET'])
